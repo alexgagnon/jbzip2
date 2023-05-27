@@ -22,9 +22,10 @@ mod tests {
             true,
         )?;
         println!("{:?}", String::from_utf8_lossy(&output));
+        let expected = b"\"Q1\"\n\"Q2\"\n\"Q3\"\n\"Q4\"\n\"Q5\"\n\"Q6\"\n\"P1\"\n\"Q60\"\n";
         assert_eq!(
             output,
-            b"\"Q1\"\n\"Q2\"\n\"Q3\"\n\"Q4\"\n\"Q5\"\n\"Q6\"\n\"P1\"\n\"Q60\"\n"
+            expected
         );
         Ok(())
     }
@@ -44,7 +45,7 @@ mod tests {
             size,
             &mut output,
             &".id".to_string(),
-            50000000,
+            10000000,
             Some("[\n".to_string()),
             Some("\n]".to_string()),
             ",\n".to_string(),

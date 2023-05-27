@@ -14,7 +14,7 @@ Notes:
 
 ## TODO:
 
-Convert to peekable stream, peek on first char of 'delimiter' and keep peeking until sure there's a match, then handle the entity. Once it's done iterating remove the bytes from the end that match 'suffix'.
+Convert to peekable stream, peek on first char of 'delimiter' and keep peeking until sure there's a match, then handle the entity. Once it's done iterating remove the bytes from the end that match 'suffix'. https://fossa.com/blog/rust-how-transform-byte-stream/
 ## Usage
 
 ### ndjson
@@ -52,5 +52,5 @@ For additional debugging information, run the command with env_logger variable (
 - `bunzip2 --keep -c <file.bz2> | jstream -d 1 | jq \'select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value, (.aliases["en"] // [] | map(.value))[] | [$id, .] | @tsv\''`
 - `jbzip2 -i <file.bz2> -j 'select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value, (.aliases["en"] // [] | map(.value))[] | [$id, .] | @tsv' -p $'[\n' -s $'\n]' -d $',\n' -b 5000000'`
 
-`hyperfine --parameter-list i 1,10,100,1000,10000,100000,1000000,2500000 -r 1 $'bunzip2 --keep -c <file.bz2> | jstream -d 1 | jq \'select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value, (.aliases["en"] // [] | map(.value))[] | [$id, .] | @tsv\'' $'./dev/jbzip2/target/release/jbzip2 -i ./dev/masters-thesis/data/dumps/{i}.json.bz2 -j \'select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value, (.aliases["en"] // [] | map(.value))[] | [$id, .] | @tsv\' -p \'[\n\' -s \'\n]\' -d \',\n\' -b 5000000'`
+`hyperfine -r 5 -L i 1,10,100,1000 -L b 5000000  $'bunzip2 --keep -c ./tests/{i}.json.bz2 | jstream -d 1 | jq \'select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value, (.aliases["en"] // [] | map(.value))[] | [., $id] | @tsv\'' $'NO_PROGRESS_BAR=1 ./target/release/jbzip2 -i ./tests/{i}.json.bz2 -j \'select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value, (.aliases["en"] // [] | map(.value))[] | [., $id] | @tsv\' -p \'[\n\' -s \'\n]\' -d \',\n\' -b {b}'`
 
