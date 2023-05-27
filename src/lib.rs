@@ -134,7 +134,7 @@ pub fn process(
         debug!("Buffer");
 
         // TODO: find a way to detect last element without a suffix (maybe try JqFilter and see if it passes?)
-        let suffix = suffix.unwrap();
+        let suffix = suffix.unwrap_or("".to_string());
         let mut n = md.read(&mut buffer)?;
         debug!("Read {} bytes", n);
 

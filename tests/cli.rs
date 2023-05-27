@@ -58,6 +58,34 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    fn test_ndjson_files(
+      #[values("test-data")]
+      filename: &str
+    ) -> Result<(), Error> {
+        let input_path = Path::new(&format!("./tests/{}.ndjson.bz2", filename)).to_path_buf();
+        let (mut reader, size) = jbzip2::get_file_as_bufreader(&input_path)?;
+        let expect_path = Path::new(&format!("./tests/{}.expected.txt", &filename)).to_path_buf();
+        let mut expected = BufReader::new(File::open(expect_path).expect("Could not open file"));
+        let mut output = Vec::new();
+        jbzip2::process(
+            &mut reader,
+            size,
+            &mut output,
+            &".id".to_string(),
+            10000000,
+            None,
+            None,
+            "\n".to_string(),
+            true,
+        )?;
+        assert!(compare(
+            &mut BufReader::new(output.as_slice()),
+            &mut expected
+        ));
+        Ok(())
+    }
+
     fn compare(a: &mut impl BufRead, b: &mut impl BufRead) -> bool {
         let mut buf1 = [0; 10000];
         let mut buf2 = [0; 10000];
