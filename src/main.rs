@@ -14,7 +14,7 @@
  use log::{debug, info};
 
 #[derive(Parser, Debug)]
-#[clap(author="alexgagnon", version, about="Decompress and process bzip2 compressed files.", long_about = "Best suited for ndjson or a single JSON array of elements.")]
+#[clap(author="alexgagnon", version, about="Decompress and process bzip2 compressed files.", long_about = "Best suited for ndjson or a single JSON array of elements. Currently, rust-jq outputs strings ending with newline characters. If you want raw text you'll need to use the `-r` flag.")]
 struct Cli {
     #[clap(short = 'c', long = "continue-on-error", help = "Don't bail on error while filtering")]
     continue_on_error: bool,
@@ -42,6 +42,9 @@ struct Cli {
 
     #[clap(short = 'b', long = "buffer-size", default_value = "500000", help = "the size of the buffer in bytes. NOTE: the buffer must be as large as the largest entity you're processing, and larger buffers are faster")]
     buffer_size: usize,
+
+    #[clap(short = 'r', long = "raw", help = "Output raw text (instead of quoted strings)")]
+    raw: bool,
 }
 
 #[tokio::main]
@@ -75,7 +78,7 @@ async fn cli(args: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
         let input = args.input_file_path.expect("Could not get path");
         let (mut reader, size) = jbzip2::get_file_as_bufreader(&input).expect("Could not get BufReader");
-        jbzip2::process(&mut reader, size, &mut output, &args.jq_filter, args.buffer_size, args.prefix, args.suffix, args.delimiter, args.continue_on_error)?;
+        jbzip2::process(&mut reader, size, &mut output, &args.jq_filter, args.buffer_size, args.prefix, args.suffix, args.delimiter, args.continue_on_error, args.raw)?;
     }
     else {
         info!("No filter provided");

@@ -20,9 +20,37 @@ mod tests {
             Some("\n]".to_string()),
             ",\n".to_string(),
             true,
+            false,
         )?;
         println!("{:?}", String::from_utf8_lossy(&output));
         let expected = b"\"Q1\"\n\"Q2\"\n\"Q3\"\n\"Q4\"\n\"Q5\"\n\"Q6\"\n\"P1\"\n\"Q60\"\n";
+        assert_eq!(
+            output,
+            expected
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_raw() -> Result<(), Error> {
+        let path = Path::new("./tests/1.json.bz2").to_path_buf();
+        let (mut reader, size) = jbzip2::get_file_as_bufreader(&path)?;
+        let mut output = Vec::new();
+        jbzip2::process(
+            &mut reader,
+            size,
+            &mut output,
+            &"[.id, .id] | @tsv".to_string(),
+            500000,
+            Some("[\n".to_string()),
+            Some("\n]".to_string()),
+            ",\n".to_string(),
+            true,
+            true,
+        )?;
+        let expected = b"Q31  Q31";
+        println!(r#"{:?}"#, String::from_utf8_lossy(&output));
+        println!(r#"{:?}"#, String::from_utf8_lossy(expected));
         assert_eq!(
             output,
             expected
@@ -50,6 +78,7 @@ mod tests {
             Some("\n]".to_string()),
             ",\n".to_string(),
             true,
+            false
         )?;
         assert!(compare(
             &mut BufReader::new(output.as_slice()),
@@ -78,6 +107,7 @@ mod tests {
             None,
             "\n".to_string(),
             true,
+            false,
         )?;
         assert!(compare(
             &mut BufReader::new(output.as_slice()),

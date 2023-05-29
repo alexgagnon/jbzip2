@@ -2,11 +2,13 @@ use bzip2::read::MultiBzDecoder;
 use indicatif::{HumanDuration, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use jq_rs::JqProgram;
 use log::{debug, info, trace};
+use serde_json::Value;
 use simdutf8::basic::from_utf8;
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
+use std::str::from_utf8_unchecked;
 use std::time::Instant;
 
 pub fn process(
@@ -19,6 +21,7 @@ pub fn process(
     suffix: Option<String>,
     delimiter: String,
     continue_on_error: bool,
+    raw: bool
 ) -> Result<(), std::io::Error> {
     let no_progress_bar = env::var("NO_PROGRESS_BAR").is_ok();
     let mut stream = BufWriter::new(output);
@@ -81,6 +84,7 @@ pub fn process(
                                 &mut num_entities,
                                 &mut num_entities_filtered,
                                 &mut num_errors,
+                                raw,
                             );
 
                             if !no_progress_bar {
@@ -123,6 +127,7 @@ pub fn process(
                         &mut num_entities,
                         &mut num_entities_filtered,
                         &mut num_errors,
+                        raw,
                     );
                     break;
                 }
@@ -153,6 +158,7 @@ pub fn process(
                     &mut num_entities,
                     &mut num_entities_filtered,
                     &mut num_errors,
+                    raw,
                 );
             }
 
@@ -175,6 +181,7 @@ pub fn process(
                     &mut num_entities,
                     &mut num_entities_filtered,
                     &mut num_errors,
+                    raw,
                 );
                 break;
             }
@@ -215,7 +222,7 @@ pub fn get_file_as_bufreader(path: &PathBuf) -> Result<(BufReader<File>, u64), s
 
 // TODO: replace the Option return with Result so we can output the error for easier debugging
 fn filter_entity(entity: &str, filter: &mut JqProgram, continue_on_error: bool) -> Option<String> {
-    debug!(">> filter_entity");
+    trace!(">> filter_entity");
     trace!("{}", entity);
     let result = filter.run(&entity);
     let filtered_entity = match result {
@@ -231,7 +238,7 @@ fn filter_entity(entity: &str, filter: &mut JqProgram, continue_on_error: bool) 
         }
     };
     trace!("{}", filtered_entity);
-    debug!("<< filter_entity");
+    trace!("<< filter_entity");
     Some(filtered_entity)
 }
 
@@ -241,14 +248,22 @@ fn output_entity(
     num_entities: &mut i32,
     num_entities_filtered: &mut i32,
     num_errors: &mut i32,
+    json: bool,
 ) {
     *num_entities += 1;
     if filtered_entity.is_some() {
         let filtered_entity = filtered_entity.unwrap();
         if !filtered_entity.is_empty() {
-            stream
-                .write(filtered_entity.as_bytes())
-                .expect("Could not write");
+            if json {
+              let parsed: Value = serde_json::from_str(&filtered_entity).unwrap();
+              stream.write(parsed.as_str().unwrap().as_bytes()).expect("Could not write");
+            }
+            else {
+              stream
+              .write(filtered_entity.as_bytes())
+              .expect("Could not write");
+            }
+
         }
         else {
           *num_entities_filtered += 1;

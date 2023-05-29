@@ -14,7 +14,7 @@ Notes:
 
 ## TODO:
 
-Convert to peekable stream, peek on first char of 'delimiter' and keep peeking until sure there's a match, then handle the entity. Once it's done iterating remove the bytes from the end that match 'suffix'. https://fossa.com/blog/rust-how-transform-byte-stream/
+- [ ] maybe don't allow for outputting anything other than string, object, or array (i.e. instead of @tsv)
 ## Usage
 
 ### ndjson
