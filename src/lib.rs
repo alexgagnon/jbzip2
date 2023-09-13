@@ -248,13 +248,14 @@ fn output_entity(
     num_entities: &mut i32,
     num_entities_filtered: &mut i32,
     num_errors: &mut i32,
-    json: bool,
+    raw: bool,
 ) {
     *num_entities += 1;
     if filtered_entity.is_some() {
         let filtered_entity = filtered_entity.unwrap();
         if !filtered_entity.is_empty() {
-            if json {
+            if !raw {
+              // TODO: handle various types recursively...
               let parsed: Value = serde_json::from_str(&filtered_entity).unwrap();
               stream.write(parsed.as_str().unwrap().as_bytes()).expect("Could not write");
             }
