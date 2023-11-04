@@ -19,7 +19,7 @@ Notes:
 The default prefix/suffix/delimiters are set up to handle ndjson.
 
 `jbzip2 --input example.ndjson.bz2 --jq-filter '.id'`
-
+gi
 ### Wikidata Dumps
 
 Wikidata dumps are a single large array of items split by a newline, so we need to supply custom prefix/suffix/delimiter values
