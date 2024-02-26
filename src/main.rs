@@ -37,7 +37,7 @@ struct Cli {
     #[clap(short = 's', long = "suffix", required = false, help = "Characters at the end of the file to skip")]
     suffix: Option<String>,
 
-    #[clap(short = 'd', long = "delimiter", default_value = "\n", help = "Delimiter between elements. For ndjson, the default of '\n' is fine, and for wikidumps use ',\n'")]
+    #[clap(short = 'd', long = "delimiter", default_value = "\n", help = "Delimiter between elements. For ndjson, the default of '\\n' is fine, and for wikidumps use ',\\n'")]
     delimiter: String,
 
     #[clap(short = 'b', long = "buffer-size", default_value = "500000", help = "the size of the buffer in bytes. NOTE: the buffer must be as large as the largest entity you're processing, and larger buffers are faster")]

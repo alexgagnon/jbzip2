@@ -19,14 +19,17 @@ Notes:
 The default prefix/suffix/delimiters are set up to handle ndjson.
 
 `jbzip2 --input example.ndjson.bz2 --jq-filter '.id'`
-gi
+
 ### Wikidata Dumps
 
 Wikidata dumps are a single large array of items split by a newline, so we need to supply custom prefix/suffix/delimiter values
 
 `jbzip2 --input latest-all.json.bz2 --jq-filter 'select(.type == "item") | .id | @tsv' --prefix $'[\n' --suffix $'\n]' --delimiter $',\n'`
 
-
 ## Debugging
 
 For additional debugging information, run the command with env_logger variable (i.e. `RUST_LOG={info,debug,trace}`)
+
+## Building
+
+When using `jq-rs` with bundled feature, you seem to need the following: dh-autoreconf

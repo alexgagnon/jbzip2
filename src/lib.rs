@@ -8,7 +8,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
-use std::str::from_utf8_unchecked;
+
 use std::time::Instant;
 
 pub fn process(
