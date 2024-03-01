@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
+use std::process::{Command, Stdio};
 use std::time::Instant;
 
 pub fn process(
@@ -57,148 +58,99 @@ pub fn process(
     let mut num_entities_filtered = 0;
     let mut num_errors = 0;
 
-    // BYTE ITERATOR METHOD, 2x slower than jstream
-    if env::var("LIST_ITERATOR").is_ok() {
-        debug!("List iterator");
-        let mut i = 0;
-        let delimiter = delimiter.as_bytes();
-        let mut bytes = md.bytes();
-        let mut d = 0;
+    // TODO: find a way to detect last element without a suffix (maybe try JqFilter and see if it passes?)
+    let suffix = suffix.unwrap_or("".to_string());
+    let mut n = md.read(&mut buffer)?;
+    debug!("Read {} bytes", n);
 
-        loop {
-            match bytes.next() {
-                Some(Ok(byte)) => {
-                    buffer[i] = byte;
-                    if delimiter[d] == byte {
-                        if delimiter.len() - 1 == d {
-                            // we have a whole entity
-                            // strip away the delimiter parts and convert to utf8 string
-                            let entity = from_utf8(&buffer[..i - d])
-                                .expect("Could not convert to utf8 string");
-                            let filtered_entity =
-                                filter_entity(entity, &mut filter, continue_on_error);
-                            num_entities += 1;
-                            output_entity(
-                                &mut stream,
-                                filtered_entity,
-                                &mut num_entities,
-                                &mut num_entities_filtered,
-                                &mut num_errors,
-                                raw,
-                            );
+    let mut str_buffer = String::new();
 
-                            if !no_progress_bar {
-                                bar.set_message(format!(
-                                    "Output {} of {} entities processed",
-                                    num_entities_filtered, num_entities
-                                ));
-                            }
+    while n > 0 {
+        // buffer has bytes in it, convert up to the number of bytes read to string
+        str_buffer.push_str(from_utf8(&buffer[..n]).expect("Could not convert to utf8 string"));
+        let pos = str_buffer.rfind(&delimiter).unwrap_or(str_buffer.len() - 1);
+        let (entities, last) = str_buffer.split_at(pos);
 
-                            // reset buffer and indexes
-                            buffer = vec![0; buffer_size];
-                            i = 0;
-                            d = 0;
-                            continue;
-                        }
-                        d += 1;
-                    } else {
-                        d = 0;
-                    }
-                    i += 1;
-                }
+        // debug!("Entities: {}", entities);
 
-                Some(Err(_)) => {
-                    panic!("Invalid byte");
-                }
+        let mut jq = Command::new("jq");
+        jq.args(["-r", jq_filter]);
 
-                None => {
-                    debug!("EOF reached");
-                    let end = if suffix.is_some() {
-                        suffix.unwrap().len()
-                    } else {
-                        0
-                    };
-                    let entity =
-                        from_utf8(&buffer[..i - end]).expect("Could not convert to utf8 string");
-                    let filtered_entity = filter_entity(entity, &mut filter, continue_on_error);
-                    output_entity(
-                        &mut stream,
-                        filtered_entity,
-                        &mut num_entities,
-                        &mut num_entities_filtered,
-                        &mut num_errors,
-                        raw,
-                    );
-                    break;
-                }
-            }
+        let process = match jq.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+            Err(why) => panic!("couldn't spawn wc: {}", why),
+            Ok(process) => process,
+        };
+
+        match process.stdin.unwrap().write_all(entities.as_bytes()) {
+          Err(why) => panic!("couldn't write to wc stdin: {}", why),
+          Ok(_) => println!("sent pangram to wc"),
         }
-    }
-    // BUFFER METHOD,
-    else {
-        debug!("Buffer");
 
-        // TODO: find a way to detect last element without a suffix (maybe try JqFilter and see if it passes?)
-        let suffix = suffix.unwrap_or("".to_string());
-        let mut n = md.read(&mut buffer)?;
+        let reader: BufReader<std::process::ChildStdout> = BufReader::new(process.stdout.unwrap());
+        // reader
+        // .lines()
+        // .filter_map(|line| line.ok())
+        // .for_each(|line| println!("{}", line));
+
+        // stream.write_all(&buffer[..n]).expect("Could not write to stream");
+        reader.lines().filter_map(|line| line.ok()).for_each(|line| {
+          stream.write_all(line.as_bytes()).expect("Could not write to stream");
+          stream.write_all(b"\n").expect("Could not write to stream");
+        });
+
+        // println!("jq output: {}", String::from_utf8_lossy(&jq.stdout));
+        // println!("jq error: {}", String::from_utf8_lossy(&jq.stderr));
+
+
+        // for entity in entities {
+        //     let filtered_entity = filter_entity(entity, &mut filter, continue_on_error);
+            
+          // output_entity(
+          //     &mut stream,
+          //     filtered_entity,
+          //     &mut num_entities,
+          //     &mut num_entities_filtered,
+          //     &mut num_errors,
+          //     raw,
+          // );
+      // }
+
+        // // the last item could be:
+        // // 1. incomplete, so just iterate
+        // // 2. shorter than the filled buffer, meaning we're EOF
+        // // 3. splitting the suffix (should iterate fine)
+        // // 4. exactly before the suffix (should iterate fine)
+        // let last = last.trim();
+        // if last.ends_with(&suffix) {
+        //     debug!("Last entity");
+        //     let filtered_entity = filter_entity(
+        //         &last[..last.len() - suffix.len()],
+        //         &mut filter,
+        //         continue_on_error,
+        //     );
+        //     output_entity(
+        //         &mut stream,
+        //         filtered_entity,
+        //         &mut num_entities,
+        //         &mut num_entities_filtered,
+        //         &mut num_errors,
+        //         raw,
+        //     );
+        //     break;
+        // }
+
+        if !no_progress_bar {
+            bar.set_message(format!(
+                "Processed {} entities, {} filtered out and {} errors",
+                num_entities, num_entities_filtered, num_errors
+            ));
+        }
+
+        str_buffer = last.to_string();
+
+        buffer = vec![0; buffer_size];
+        n = md.read(&mut buffer)?;
         debug!("Read {} bytes", n);
-
-        let mut str_buffer = String::new();
-
-        while n > 0 {
-            // buffer has bytes in it, convert up to the number of bytes read to string
-            str_buffer.push_str(from_utf8(&buffer[..n]).expect("Could not convert to utf8 string"));
-            let entities: Vec<&str> = str_buffer.split(&delimiter).collect();
-            let (last, entities) = entities.split_last().unwrap();
-            for entity in entities {
-                let filtered_entity = filter_entity(entity, &mut filter, continue_on_error);
-                output_entity(
-                    &mut stream,
-                    filtered_entity,
-                    &mut num_entities,
-                    &mut num_entities_filtered,
-                    &mut num_errors,
-                    raw,
-                );
-            }
-
-            // the last item could be:
-            // 1. incomplete, so just iterate
-            // 2. shorter than the filled buffer, meaning we're EOF
-            // 3. splitting the suffix (should iterate fine)
-            // 4. exactly before the suffix (should iterate fine)
-            let last = last.trim();
-            if last.ends_with(&suffix) {
-                debug!("Last entity");
-                let filtered_entity = filter_entity(
-                    &last[..last.len() - suffix.len()],
-                    &mut filter,
-                    continue_on_error,
-                );
-                output_entity(
-                    &mut stream,
-                    filtered_entity,
-                    &mut num_entities,
-                    &mut num_entities_filtered,
-                    &mut num_errors,
-                    raw,
-                );
-                break;
-            }
-
-            if !no_progress_bar {
-                bar.set_message(format!(
-                    "Processed {} entities, {} filtered out and {} errors",
-                    num_entities, num_entities_filtered, num_errors
-                ));
-            }
-
-            str_buffer = last.to_string();
-
-            buffer = vec![0; buffer_size];
-            n = md.read(&mut buffer)?;
-            debug!("Read {} bytes", n);
-        }
     }
 
     stream.flush().expect("Could not flush");
