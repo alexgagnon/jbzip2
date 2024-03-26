@@ -1,6 +1,7 @@
 on:
+  workflow_dispatch:
   release:
-    types: [created, updated]
+    types: [created]
 
 env:
   CARGO_TERM_COLOR: always
