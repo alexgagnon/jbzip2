@@ -25,9 +25,10 @@ jobs:
         name: Install additional tools
         shell: bash
       - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: ${{ matrix.archive }}
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/$(basename $(pwd)) release/
+          cd release
+          tar -czf $(basename $(pwd))-${{ matrix.target }}.tar.gz $(basename $(pwd))
+        shell: bash
