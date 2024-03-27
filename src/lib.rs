@@ -4,6 +4,7 @@ use jq_rs::JqProgram;
 use log::{debug, info, trace};
 use serde_json::Value;
 use simdutf8::basic::from_utf8;
+use core::panic;
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -26,7 +27,6 @@ pub fn process(
 ) -> Result<(), std::io::Error> {
     let no_progress_bar = env::var("NO_PROGRESS_BAR").is_ok();
     let mut stream = BufWriter::new(output);
-    let mut filter = jq_rs::compile(jq_filter).expect("Could not compile jq filter");
 
     let mut md = MultiBzDecoder::new(reader);
 
@@ -58,20 +58,55 @@ pub fn process(
     let mut num_entities_filtered = 0;
     let mut num_errors = 0;
 
-    // TODO: find a way to detect last element without a suffix (maybe try JqFilter and see if it passes?)
     let suffix = suffix.unwrap_or("".to_string());
     let mut n = md.read(&mut buffer)?;
     debug!("Read {} bytes", n);
 
     let mut str_buffer = String::new();
+    str_buffer.reserve(buffer_size); // reserve space for the buffer
 
-    while n > 0 {
+    let mut done = false;
+
+    // if n == 0, we're at EOF
+    while n > 0 && !done {
         // buffer has bytes in it, convert up to the number of bytes read to string
         str_buffer.push_str(from_utf8(&buffer[..n]).expect("Could not convert to utf8 string"));
-        let pos = str_buffer.rfind(&delimiter).unwrap_or(str_buffer.len() - 1);
-        let (entities, last) = str_buffer.split_at(pos);
 
-        // debug!("Entities: {}", entities);
+        // []
+        // [partial] -> error, buffer_size too small
+        // [,partial] -> error, buffer_size too small
+        // [a...] -> fine -> single entity smaller than buffer
+        // [a,] -> fine -> exactly ends with delimiter, trim it
+        // [a,partial] -> fine, keep partial for next iteration
+        // [a, b...] -> fine, concat a and b
+        
+        // trim delimiter from start and end of the buffer to normalize
+        str_buffer = str_buffer.trim_start_matches(&delimiter).to_string();
+        str_buffer = str_buffer.trim_end_matches(&delimiter).to_string();
+
+        // find the last delimiter in the string, if it exists
+        let pos = str_buffer.rfind(&delimiter);
+
+        // pos can be None if it's a single entity, or if the entity is larger than the buffer
+        if pos.is_none() {
+          if str_buffer.len() >= buffer_size {
+            panic!("Entity is larger than buffer, increase --buffer-size value")
+          }
+        }
+
+        let mut last = str_buffer.split_off(pos.unwrap_or(0));
+
+        // if it's the last entity, trim the suffix and then put it back in the str_buffer
+        if last.ends_with(&suffix) {
+            done = true;
+            last.truncate(last.len() - suffix.len());
+            str_buffer.push_str(&last);
+        }
+
+        // convert the delimiter to newline for jq --raw if not already (i.e. jsonl)
+        if !delimiter.eq("\n") {
+          str_buffer = str_buffer.replace(&delimiter, "\n");
+        }
 
         let mut jq = Command::new("jq");
         jq.args(["-r", jq_filter]);
@@ -81,9 +116,9 @@ pub fn process(
             Ok(process) => process,
         };
 
-        match process.stdin.unwrap().write_all(entities.as_bytes()) {
+        match process.stdin.unwrap().write_all(str_buffer.as_bytes()) {
           Err(why) => panic!("couldn't write to wc stdin: {}", why),
-          Ok(_) => println!("sent pangram to wc"),
+          Ok(_) => println!("sent to wc"),
         }
 
         let reader: BufReader<std::process::ChildStdout> = BufReader::new(process.stdout.unwrap());
