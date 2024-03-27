@@ -54,13 +54,10 @@ pub fn process(
     }
 
     debug!("Filtering entities...");
-    let mut num_entities = 0;
-    let mut num_entities_filtered = 0;
-    let mut num_errors = 0;
 
     let suffix = suffix.unwrap_or("".to_string());
     let mut n = md.read(&mut buffer)?;
-    debug!("Read {} bytes", n);
+    let mut total_bytes = n;
 
     let mut str_buffer = String::new();
     str_buffer.reserve(buffer_size); // reserve space for the buffer
@@ -122,81 +119,25 @@ pub fn process(
         }
 
         let reader: BufReader<std::process::ChildStdout> = BufReader::new(process.stdout.unwrap());
-        // reader
-        // .lines()
-        // .filter_map(|line| line.ok())
-        // .for_each(|line| println!("{}", line));
 
-        // stream.write_all(&buffer[..n]).expect("Could not write to stream");
         reader.lines().filter_map(|line| line.ok()).for_each(|line| {
           stream.write_all(line.as_bytes()).expect("Could not write to stream");
           stream.write_all(b"\n").expect("Could not write to stream");
         });
-
-        // println!("jq output: {}", String::from_utf8_lossy(&jq.stdout));
-        // println!("jq error: {}", String::from_utf8_lossy(&jq.stderr));
-
-
-        // for entity in entities {
-        //     let filtered_entity = filter_entity(entity, &mut filter, continue_on_error);
-            
-          // output_entity(
-          //     &mut stream,
-          //     filtered_entity,
-          //     &mut num_entities,
-          //     &mut num_entities_filtered,
-          //     &mut num_errors,
-          //     raw,
-          // );
-      // }
-
-        // // the last item could be:
-        // // 1. incomplete, so just iterate
-        // // 2. shorter than the filled buffer, meaning we're EOF
-        // // 3. splitting the suffix (should iterate fine)
-        // // 4. exactly before the suffix (should iterate fine)
-        // let last = last.trim();
-        // if last.ends_with(&suffix) {
-        //     debug!("Last entity");
-        //     let filtered_entity = filter_entity(
-        //         &last[..last.len() - suffix.len()],
-        //         &mut filter,
-        //         continue_on_error,
-        //     );
-        //     output_entity(
-        //         &mut stream,
-        //         filtered_entity,
-        //         &mut num_entities,
-        //         &mut num_entities_filtered,
-        //         &mut num_errors,
-        //         raw,
-        //     );
-        //     break;
-        // }
-
-        if !no_progress_bar {
-            bar.set_message(format!(
-                "Processed {} entities, {} filtered out and {} errors",
-                num_entities, num_entities_filtered, num_errors
-            ));
-        }
 
         str_buffer = last.to_string();
 
         buffer = vec![0; buffer_size];
         n = md.read(&mut buffer)?;
         debug!("Read {} bytes", n);
+
+        info!("Processed {} bytes", total_bytes);
+        print!("\x1B[2K\r");
+        std::io::stdout().flush().unwrap();
     }
 
     stream.flush().expect("Could not flush");
 
-    bar.finish_with_message(format!(
-        "Finished in {}. Processed {} entities, {} filtered out and {} errors",
-        HumanDuration(start.elapsed()),
-        num_entities,
-        num_entities_filtered,
-        num_errors
-    ));
     Ok(())
 }
 
