@@ -78,7 +78,7 @@ async fn cli(args: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
         let input = args.input_file_path.expect("Could not get path");
         let (mut reader, size) = jbzip2::get_file_as_bufreader(&input).expect("Could not get BufReader");
-        jbzip2::process(&mut reader, size, &mut output, &args.jq_filter, args.buffer_size, args.prefix, args.suffix, args.delimiter, args.continue_on_error, args.raw)?;
+        jbzip2::process(&mut reader, size, &mut output, &args.jq_filter, args.buffer_size, args.prefix, args.suffix, args.delimiter, args.continue_on_error)?;
     }
     else {
         info!("No filter provided");
