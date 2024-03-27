@@ -210,6 +210,14 @@ pub fn process(
         num_entities_filtered,
         num_errors
     ));
+
+    info!(
+        "Finished in {}. Processed {} entities, {} filtered out and {} errors",
+        HumanDuration(start.elapsed()),
+        num_entities,
+        num_entities_filtered,
+        num_errors
+    );
     Ok(())
 }
 
