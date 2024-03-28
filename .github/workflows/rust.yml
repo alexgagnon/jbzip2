@@ -1,13 +1,17 @@
 name: release
 
-on: workflow_dispatch
+on: 
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   release:
-    name: release ${{ matrix.target }}
+    name: release
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,14 +24,14 @@ jobs:
           # - target: x86_64-apple-darwin
           #   archive: zip
     steps:
-      - uses: actions/checkout@master
-      - run: sudo apt-get update && sudo apt-get -y install jq autotools-dev autoconf dh-autoreconf automake make
-        name: Install additional tools
-        shell: bash
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout
+        uses: actions/checkout@master
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
         with:
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: ${{ matrix.archive }}
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
