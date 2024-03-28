@@ -2,13 +2,11 @@ use bzip2::read::MultiBzDecoder;
 use log::{debug, info, trace};
 use simdutf8::basic::from_utf8;
 use core::panic;
-use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
 use std::process::{Command, Stdio};
-use std::str::from_utf8_unchecked;
 use std::time::Instant;
 
 pub fn process(
@@ -22,7 +20,6 @@ pub fn process(
     delimiter: String,
     continue_on_error: bool,
 ) -> Result<(), std::io::Error> {
-    let no_progress_bar = env::var("NO_PROGRESS_BAR").is_ok();
     let mut stream = BufWriter::new(output);
 
     let mut md = MultiBzDecoder::new(reader);
@@ -151,6 +148,7 @@ pub fn process(
 fn replace_line(str: &str) {
     print!("\x1B[2K\r");
     std::io::stdout().flush().unwrap();
+    print!("{}", str);
 }
 
 fn format_bytes(bytes: u64) -> String {

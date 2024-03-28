@@ -29,11 +29,3 @@ Wikidata dumps are a single large array of items split by a newline, so we need 
 ## Debugging
 
 For additional debugging information, run the command with env_logger variable (i.e. `RUST_LOG={info,debug,trace}`)
-
-## Building
-
-When using `jq-rs` with bundled feature, you seem to need the following: dh-autoreconf
-
-## TODO
-
-- probably don't need a progress bar... just spit out results everyonce and a while
