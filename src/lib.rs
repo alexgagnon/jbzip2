@@ -3,12 +3,12 @@ use log::{debug, info, trace};
 use simdutf8::basic::from_utf8;
 use core::panic;
 use std::env;
-use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
 use std::process::{Command, Stdio};
+use std::str::from_utf8_unchecked;
 use std::time::Instant;
 
 pub fn process(
@@ -63,7 +63,7 @@ pub fn process(
         // [a,partial] -> fine, keep partial for next iteration
         // [a, b...] -> fine, concat a and b
         
-        // trim delimiter from start and end of the buffer to normalize
+        // trim delimiter from start and end of the buffer to normalize what's in the buffer
         str_buffer = str_buffer.trim_start_matches(&delimiter).to_string();
         str_buffer = str_buffer.trim_end_matches(&delimiter).to_string();
 
@@ -71,6 +71,8 @@ pub fn process(
         let pos = str_buffer.rfind(&delimiter);
 
         // pos can be None if it's a single entity, or if the entity is larger than the buffer
+        // TODO: this is an edge case... it could EXACTLY fit the buffer
+        // maybe keep a flag and then continue and see if the first char of the next buffer is a delimiter
         if pos.is_none() {
           if str_buffer.len() >= buffer_size {
             panic!("Entity is larger than buffer, increase --buffer-size value")
@@ -86,7 +88,7 @@ pub fn process(
             str_buffer.push_str(&last);
         }
 
-        // convert the delimiter to newline for jq --raw if not already (i.e. jsonl)
+        // convert the delimiter to newline for jq --raw if not already (i.e. jsonl format)
         if !delimiter.eq("\n") {
           str_buffer = str_buffer.replace(&delimiter, "\n");
         }
