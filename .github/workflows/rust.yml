@@ -19,13 +19,18 @@ jobs:
         include:
           # - target: x86_64-pc-windows-gnu
           #   archive: zip
-          - target: x86_64-unknown-linux-musl
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             archive: tar.gz
           # - target: x86_64-apple-darwin
           #   archive: zip
     steps:
       - name: Checkout
         uses: actions/checkout@master
+
+      - name: Install libs
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y musl-tools
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
