@@ -2,8 +2,15 @@
 
 FILTER='select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value\, (.aliases["en"] // [] | map(.value))[] | [.\, $id] | @tsv'
 
-hyperfine --show-output --export-json json_only_results.json -L filter "$FILTER" -L i 1 -r 1 \
-$'jq -r \'.[] | {filter}\' ../samples/data/{i}.json' 
-# $'jq -rn --stream \'fromstream(1|truncate_stream(inputs)) | {filter}\' ../samples/data/{i}.json' \
-# $'../../jstream/jstream -d 1 < ../samples/data/{i}.json | jq -r \'{filter}\'' \
-# $'../../jm/jm ../samples/data/{i}.json | jq -r \'{filter}\''
+for i in 1_000_000; do
+  hyperfine --show-output -i -u second -L filter "$FILTER" -L i $i -r 5 \
+  --export-markdown json_only_results_24gb_$i.md \
+  --command-name jq \
+  --command-name 'jq-stream' \
+  --command-name jm \
+  --command-name jstream \
+  $'jq -r \'.[] | {filter}\' ../samples/data/{i}.json' \
+  $'jq -rn --stream \'fromstream(1|truncate_stream(inputs)) | {filter}\' ../samples/data/{i}.json' \
+  $'../../jm/jm ../samples/data/{i}.json | jq -r \'{filter}\'' \
+  $'../../jstream/jstream -d 1 < ../samples/data/{i}.json | jq -r \'{filter}\''
+done
