@@ -61,7 +61,7 @@ jobs:
             version="${{ needs.create-release.outputs.version }}"
             echo "ARCHIVE=${{ env.APP_NAME }}-$version-${{ matrix.target }}" >> $GITHUB_ENV
     
-      - name: Creating directory for archive
+      - name: creating directory for archive
         shell: bash
         run: |
           mkdir -p "$ARCHIVE"/{complete,doc}
@@ -69,7 +69,7 @@ jobs:
           cp {README.md,COPYING,UNLICENSE,LICENSE-MIT} "$ARCHIVE" /
           cp {CHANGELOG.md,FAQ.md,GUIDE.md} "$ARCHIVE"/doc/
 
-      - name: Build archive (Windows)
+      - name: build archive (Windows)
         shell: bash
         if: matrix.os == 'windows-latest'
         run: |
@@ -78,7 +78,7 @@ jobs:
           echo "ASSET=$ARCHIVE.zip" >> $GITHUB_ENV
           echo "ASSET_SUM=$ARCHIVE.zip.sha256" >> $GITHUB_ENV
     
-      - name: Build archive (Unix)
+      - name: build archive (Unix)
         shell: bash
         if: matrix.os != 'windows-latest'
         run: |
@@ -86,8 +86,8 @@ jobs:
           shasum -a 256 "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
           echo "ASSET=$ARCHIVE.tar.gz" >> $GITHUB_ENV
           echo "ASSET_SUM=$ARCHIVE.tar.gz.sha256" >> $GITHUB_ENV
-          
-      - name: Upload release archive
+
+      - name: upload release archive
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
