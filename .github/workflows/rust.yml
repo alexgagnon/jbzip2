@@ -14,7 +14,7 @@ jobs:
     name: create gh release
     runs-on: ubuntu-latest
     steps:
-      - run: echo "VERSION=$(grep -o "^version = \".*\"" Cargo.toml)" >> $GITHUB_ENV
+      - run: echo "VERSION=$(grep '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')" >> $GITHUB_ENV
       - run: gh release create $VERSION --draft --verify-tag --title $VERSION
   
   build-and-release:
