@@ -1,17 +1,24 @@
 name: release
 
-on: 
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+on: workflow_dispatch
+
+permissions:
+  contents: write
 
 env:
+  APP_NAME: jbzip2
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    name: release
+  create-release:
+    name: create gh release
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "VERSION=$(grep -o "^version = \".*\"" Cargo.toml)" >> $GITHUB_ENV
+      - run: gh release create $VERSION --draft --verify-tag --title $VERSION
+  
+  build-and-release:
+    name: build and release
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -39,4 +46,51 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            bin="target/${{ matrix.target }}/release/${{ env.APP_NAME }}.exe"
+          else
+            bin="target/${{ matrix.target }}/release/${{ env.APP_NAME }}"
+          fi
+          echo "BIN=$bin" >> $GITHUB_ENV
+
+          - name: Determine archive name
+          shell: bash
+          run: |
+            version="${{ needs.create-release.outputs.version }}"
+            echo "ARCHIVE=${{ env.APP_NAME }}-$version-${{ matrix.target }}" >> $GITHUB_ENV
+    
+      - name: Creating directory for archive
+        shell: bash
+        run: |
+          mkdir -p "$ARCHIVE"/{complete,doc}
+          cp "$BIN" "$ARCHIVE" /
+          cp {README.md,COPYING,UNLICENSE,LICENSE-MIT} "$ARCHIVE" /
+          cp {CHANGELOG.md,FAQ.md,GUIDE.md} "$ARCHIVE"/doc/
+
+      - name: Build archive (Windows)
+        shell: bash
+        if: matrix.os == 'windows-latest'
+        run: |
+          7z a "$ARCHIVE.zip" "$ARCHIVE"
+          certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"
+          echo "ASSET=$ARCHIVE.zip" >> $GITHUB_ENV
+          echo "ASSET_SUM=$ARCHIVE.zip.sha256" >> $GITHUB_ENV
+    
+      - name: Build archive (Unix)
+        shell: bash
+        if: matrix.os != 'windows-latest'
+        run: |
+          tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
+          echo "ASSET=$ARCHIVE.tar.gz" >> $GITHUB_ENV
+          echo "ASSET_SUM=$ARCHIVE.tar.gz.sha256" >> $GITHUB_ENV
+          
+      - name: Upload release archive
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          version="${{ needs.create-release.outputs.version }}"
+          gh release upload "$version" ${{ env.ASSET }} ${{ env.ASSET_SUM }}
