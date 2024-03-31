@@ -131,8 +131,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$ARCHIVE"/{complete,doc}
-          cp "$BIN" "$ARCHIVE" /
-          # cp {README.md,COPYING,UNLICENSE,LICENSE-MIT} "$ARCHIVE" /
+          cp "$BIN" "$ARCHIVE"/
+          # cp {README.md,COPYING,UNLICENSE,LICENSE-MIT} "$ARCHIVE"/
           # cp {CHANGELOG.md,FAQ.md,GUIDE.md} "$ARCHIVE"/doc/
 
       - name: build archive (Windows)
