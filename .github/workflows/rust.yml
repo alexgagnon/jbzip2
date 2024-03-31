@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO: cargo
+      CROSS_VERSION: v0.2.5
       TARGET_DIR: ./target
     strategy:
       fail-fast: false
