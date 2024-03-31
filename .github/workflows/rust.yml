@@ -16,7 +16,7 @@ jobs:
     steps:
       - run: echo "VERSION=$(grep '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')" >> $GITHUB_ENV
       - run: echo "$VERSION"
-      - run: gh release create $VERSION --draft --verify-tag --title $VERSION
+      - run: gh release create 0.0.0 --draft --title 0.0.0
   
   build-and-release:
     name: build and release
