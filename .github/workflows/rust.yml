@@ -28,7 +28,8 @@ jobs:
       
   build-and-release:
     name: build and release
-    runs-on: ubuntu-latest
+    needs: ['create-release']
+    runs-on: ${{ matrix.os }}
     env:
       CARGO: cargo
       CROSS_VERSION: v0.2.5
@@ -105,12 +106,12 @@ jobs:
           fi
           echo "BIN=$bin" >> $GITHUB_ENV
 
-      - name: Strip release binary (macos)
+      - name: strip release binary (macos)
         if: matrix.os == 'macos-latest'
         shell: bash
         run: strip "$BIN"
   
-      - name: Strip release binary (cross)
+      - name: strip release binary (cross)
         if: env.CARGO == 'cross'
         shell: bash
         run: |
@@ -131,8 +132,8 @@ jobs:
         run: |
           mkdir -p "$ARCHIVE"/{complete,doc}
           cp "$BIN" "$ARCHIVE" /
-          cp {README.md,COPYING,UNLICENSE,LICENSE-MIT} "$ARCHIVE" /
-          cp {CHANGELOG.md,FAQ.md,GUIDE.md} "$ARCHIVE"/doc/
+          # cp {README.md,COPYING,UNLICENSE,LICENSE-MIT} "$ARCHIVE" /
+          # cp {CHANGELOG.md,FAQ.md,GUIDE.md} "$ARCHIVE"/doc/
 
       - name: build archive (Windows)
         shell: bash
