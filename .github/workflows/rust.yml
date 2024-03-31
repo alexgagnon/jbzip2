@@ -23,7 +23,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create 0.0.0 --draft --title 0.0.0
-  
+    outputs:
+      version: ${{ env.VERSION }}
+      
   build-and-release:
     name: build and release
     runs-on: ubuntu-latest
