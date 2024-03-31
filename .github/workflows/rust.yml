@@ -27,6 +27,9 @@ jobs:
   build-and-release:
     name: build and release
     runs-on: ubuntu-latest
+    env:
+      CARGO: cargo
+      TARGET_DIR: ./target
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +54,34 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
 
+      - name: setup Cross
+        if: matrix.os == 'ubuntu-latest' && matrix.target != ''
+        shell: bash
+        run: |
+          # In the past, new releases of 'cross' have broken CI. So for now, we
+          # pin it. We also use their pre-compiled binary releases because cross
+          # has over 100 dependencies and takes a bit to compile.
+          dir="$RUNNER_TEMP/cross-download"
+          mkdir "$dir"
+          echo "$dir" >> $GITHUB_PATH
+          cd "$dir"
+          curl -LO "https://github.com/cross-rs/cross/releases/download/$CROSS_VERSION/cross-x86_64-unknown-linux-musl.tar.gz"
+          tar xf cross-x86_64-unknown-linux-musl.tar.gz
+          echo "CARGO=cross" >> $GITHUB_ENV
+
+      - name: set target variables
+        shell: bash
+        run: |
+          echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
+          echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
+  
+      - name: show command used for Cargo
+        shell: bash
+        run: |
+          echo "cargo command is: ${{ env.CARGO }}"
+          echo "target flag is: ${{ env.TARGET_FLAGS }}"
+          echo "target dir is: ${{ env.TARGET_DIR }}"
+          
       - name: build
         run: |
           cargo build --release --target ${{ matrix.target }}
@@ -61,6 +92,21 @@ jobs:
           fi
           echo "BIN=$bin" >> $GITHUB_ENV
 
+      - name: Strip release binary (macos)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: strip "$BIN"
+  
+      - name: Strip release binary (cross)
+        if: env.CARGO == 'cross'
+        shell: bash
+        run: |
+          docker run --rm -v \
+            "$PWD/target:/target:Z" \
+            "ghcr.io/cross-rs/${{ matrix.target }}:main" \
+            "${{ matrix.strip }}" \
+            "/$BIN"
+            
       - name: determine archive name
         shell: bash
         run: |
