@@ -6,7 +6,7 @@ CLI which enables decompressing and transforming bzip2 compressed JSON files in 
 
 **NOTE: you may need to use your shell specific way of escaping characters, for example with sh/bash, you need to use e.g. --prefix $'[\n'.**
 
-Currently it works best for files that are ndjson or a single array (such as Wikidata dumps).
+Currently it works best for files that are jsonl or a single array (such as Wikidata dumps).
 
 Notes:
 - although `jq` is primarily used to process JSON input, it can output in any format, such as csv or even arbitrary text
@@ -14,11 +14,11 @@ Notes:
 
 ## Usage
 
-### ndjson
+### jsonl
 
-The default prefix/suffix/delimiters are set up to handle ndjson.
+The default prefix/suffix/delimiters are set up to handle jsonl.
 
-`jbzip2 --input example.ndjson.bz2 --jq-filter '.id'`
+`jbzip2 --input example.jsonl.bz2 --jq-filter '.id'`
 
 ### Wikidata Dumps
 

@@ -14,7 +14,7 @@
  use log::{debug, info};
 
 #[derive(Parser, Debug)]
-#[clap(author="alexgagnon", version, about="Decompress and process bzip2 compressed files.", long_about = "Best suited for ndjson or a single JSON array of elements. Currently, rust-jq outputs strings ending with newline characters. If you want raw text you'll need to use the `-r` flag.")]
+#[clap(author="alexgagnon", version, about="Decompress and process bzip2 compressed files.", long_about = "Best suited for jsonl or a single JSON array of elements. Currently, rust-jq outputs strings ending with newline characters. If you want raw text you'll need to use the `-r` flag.")]
 struct Cli {
     #[clap(short = 'c', long = "continue-on-error", help = "Don't bail on error while filtering")]
     continue_on_error: bool,
@@ -31,13 +31,16 @@ struct Cli {
     #[clap(short = 'j', long = "jq-filter", default_value = "", help = "jq filter, see https://stedolan.github.io/jq/ for usage. NOTE: The filter is applied to EACH ELEMENT!")]
     jq_filter: String,
 
+    #[clap(short = 't', long = "type", required = false, help = "Type of file to process. Options are 'jsonl' or 'wikidump'")]
+    format_type: Option<String>,
+
     #[clap(short = 'p', long = "prefix", required = false, help = "Characters in the beginning of the file to skip")]
     prefix: Option<String>,
 
     #[clap(short = 's', long = "suffix", required = false, help = "Characters at the end of the file to skip")]
     suffix: Option<String>,
 
-    #[clap(short = 'd', long = "delimiter", default_value = "\n", help = "Delimiter between elements. For ndjson, the default of '\\n' is fine, and for wikidumps use ',\\n'")]
+    #[clap(short = 'd', long = "delimiter", default_value = "\n", help = "Delimiter between elements. For jsonl, the default of '\\n' is fine, and for wikidumps use ',\\n'")]
     delimiter: String,
 
     #[clap(short = 'b', long = "buffer-size", default_value = "500000", help = "the size of the buffer in bytes. NOTE: the buffer must be as large as the largest entity you're processing, and larger buffers are faster")]
@@ -78,7 +81,7 @@ async fn cli(args: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
         let input = args.input_file_path.expect("Could not get path");
         let (mut reader, size) = jbzip2::get_file_as_bufreader(&input).expect("Could not get BufReader");
-        jbzip2::process(&mut reader, size, &mut output, &args.jq_filter, args.buffer_size, args.prefix, args.suffix, args.delimiter, args.continue_on_error)?;
+        jbzip2::process(&mut reader, size, &mut output, &args.jq_filter, args.buffer_size, args.format_type, args.prefix, args.suffix, args.delimiter, args.continue_on_error)?;
     }
     else {
         info!("No filter provided");

@@ -15,6 +15,7 @@ pub fn process(
     output: &mut impl Write,
     jq_filter: &String,
     buffer_size: usize,
+    format_type: Option<String>,
     prefix: Option<String>,
     suffix: Option<String>,
     delimiter: String,
@@ -27,18 +28,38 @@ pub fn process(
     trace!("Initializing buffer to size {}", buffer_size);
     let mut buffer = vec![0; buffer_size];
 
+    let mut p = prefix.unwrap_or("".to_string());
+    let mut s = suffix.unwrap_or("".to_string());
+    let mut d = delimiter;
+
+    if let Some(format_type) = format_type {
+        debug!("Setting format type to {}", format_type);
+        match format_type.as_str() {
+            "wikidump" => {
+                p = "[\n".to_string();
+                s = "\n]".to_string();
+                d = ",\n".to_string();
+            }
+            "jsonl" => {
+                p = "".to_string();
+                s = "".to_string();
+                d = "\n".to_string();
+            }
+            _ => {
+                panic!("Invalid format type");
+            }
+        }
+    }
+
     let start = Instant::now();
 
     // discard the prefix characters
-    if prefix.is_some() {
-        debug!("Stripping prefix");
-        md.read(&mut vec![0u8; prefix.unwrap().len()])
-            .expect("Could not strip prefix");
-    }
+    debug!("Stripping prefix");
+    md.read(&mut vec![0u8; p.len()])
+        .expect("Could not strip prefix");
 
     debug!("Filtering entities...");
 
-    let suffix = suffix.unwrap_or("".to_string());
     let mut n = md.read(&mut buffer)?;
     let mut total_bytes: u64 = n as u64;
 
@@ -61,11 +82,11 @@ pub fn process(
         // [a, b...] -> fine, concat a and b
         
         // trim delimiter from start and end of the buffer to normalize what's in the buffer
-        str_buffer = str_buffer.trim_start_matches(&delimiter).to_string();
-        str_buffer = str_buffer.trim_end_matches(&delimiter).to_string();
+        str_buffer = str_buffer.trim_start_matches(&d).to_string();
+        str_buffer = str_buffer.trim_end_matches(&d).to_string();
 
         // find the last delimiter in the string, if it exists
-        let pos = str_buffer.rfind(&delimiter);
+        let pos = str_buffer.rfind(&d);
 
         // pos can be None if it's a single entity, or if the entity is larger than the buffer
         // TODO: this is an edge case... it could EXACTLY fit the buffer
@@ -79,15 +100,15 @@ pub fn process(
         let mut last = str_buffer.split_off(pos.unwrap_or(0));
 
         // if it's the last entity, trim the suffix and then put it back in the str_buffer
-        if last.ends_with(&suffix) {
+        if last.ends_with(&s) {
             done = true;
-            last.truncate(last.len() - suffix.len());
+            last.truncate(last.len() - s.len());
             str_buffer.push_str(&last);
         }
 
         // convert the delimiter to newline for jq --raw if not already (i.e. jsonl format)
-        if !delimiter.eq("\n") {
-          str_buffer = str_buffer.replace(&delimiter, "\n");
+        if !d.eq("\n") {
+          str_buffer = str_buffer.replace(&d, "\n");
         }
 
         let mut jq = Command::new("jq");
