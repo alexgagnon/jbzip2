@@ -72,7 +72,6 @@ jobs:
       - name: setup Cross
         shell: bash
         if: matrix.os == 'ubuntu-latest' && matrix.target != ''
-        shell: bash
         run: |
           # In the past, new releases of 'cross' have broken CI. So for now, we
           # pin it. We also use their pre-compiled binary releases because cross
