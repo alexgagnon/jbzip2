@@ -39,20 +39,19 @@ jobs:
           # - target: x86_64-apple-darwin
           #   archive: zip
     steps:
-      - name: Checkout
-        uses: actions/checkout@master
+      - uses: actions/checkout@master
 
-      - name: Install libs
+      - name: install libs
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y musl-tools
 
-      - name: Install Rust
+      - name: install rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           target: ${{ matrix.target }}
 
-      - name: Build
+      - name: build
         run: |
           cargo build --release --target ${{ matrix.target }}
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
@@ -62,11 +61,11 @@ jobs:
           fi
           echo "BIN=$bin" >> $GITHUB_ENV
 
-          - name: Determine archive name
-          shell: bash
-          run: |
-            version="${{ needs.create-release.outputs.version }}"
-            echo "ARCHIVE=${{ env.APP_NAME }}-$version-${{ matrix.target }}" >> $GITHUB_ENV
+      - name: determine archive name
+        shell: bash
+        run: |
+          version="${{ needs.create-release.outputs.version }}"
+          echo "ARCHIVE=${{ env.APP_NAME }}-$version-${{ matrix.target }}" >> $GITHUB_ENV
     
       - name: creating directory for archive
         shell: bash
