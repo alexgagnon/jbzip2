@@ -3,12 +3,14 @@
 FILTER='select((.type == "item") and (.labels | has("en")) and (.claims.P31 // [] | map(.mainsnak.datavalue.value.id != "Q13442814") | all)) | (.id|ltrimstr("Q")) as $id | .labels["en"].value\, (.aliases["en"] // [] | map(.value))[] | [.\, $id] | @tsv'
 
 for i in 1 10 100 1_000 10_000 100_000 1_000_000; do
-  hyperfine --show-output -i -u second -L filter "$FILTER" -L i $i -L b 1000000000 -r 5 \
+  hyperfine --show-output -i -u second -L filter "$FILTER" -L i $i -r 5 \
   --export-markdown decompress_results_$i.md \
   --command-name jbzip2 \
+  --command-name 'jbzip2 b 1000000000' \
   --command-name 'bunzip | jstream' \
   --command-name 'lbzip2 | jstream' \
-  $'../target/release/jbzip2 -i ../samples/data/{i}.json.bz2 -j \'{filter}\' -t wikidump' \
+  $'../target/release/jbzip2 -i ../samples/data/{i}.json.bz2 -j \'{filter}\' -t wikidump -b 1000000000' \
+  $'../target/release/jbzip2 -i ../samples/data/{i}.json.bz2 -j \'{filter}\' -t wikidump -b 10000000000' \
   $'bunzip2 --keep -c ../samples/data/{i}.json.bz2 | ../../jstream/jstream -d 1 | jq -r \'{filter}\'' \
   $'lbunzip2 --keep -c ../samples/data/{i}.json.bz2 | ../../jstream/jstream -d 1 | jq -r \'{filter}\''
 done
