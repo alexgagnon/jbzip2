@@ -1,10 +1,8 @@
 # jbzip2
 
-CLI which enables decompressing and transforming bzip2 compressed JSON files in one shot. This helps with very large files that would take up too much disk space by decompressing it first and then transforming, and works faster than just piping the output between commands. It uses the `jq` tool under the hood to filter entities and extract desired properties.
+CLI enabling decompressing and transforming bzip2 compressed files in one shot. This helps with very large files that would take up too much disk space by decompressing it first and then transforming, and works faster than just piping the output between common commands. It uses the `jq` tool under the hood to filter entities and extract desired properties.
 
-**NOTE: it processes each item one at a time, so your prefix/suffix/delimiter needs to allow for splitting the raw text into individual items.**
-
-**NOTE: you may need to use your shell specific way of escaping characters, for example with sh/bash, you need to use e.g. --prefix $'[\n'.**
+**NOTE: your prefix/suffix/delimiter needs to allow for splitting the raw text into individual items.**
 
 Currently it works best for files that are jsonl or a single array (such as Wikidata dumps).
 
@@ -24,7 +22,11 @@ The default prefix/suffix/delimiters are set up to handle jsonl.
 
 Wikidata dumps are a single large array of items split by a newline, so we need to supply custom prefix/suffix/delimiter values
 
-`jbzip2 --input latest-all.json.bz2 --jq-filter 'select(.type == "item") | .id | @tsv' --prefix $'[\n' --suffix $'\n]' --delimiter $',\n'`
+`jbzip2 --input latest-all.json.bz2 --jq-filter 'select(.type == "item") | .id | @tsv' --type wikidump`
+
+### Other
+
+You can provide your own prefix, suffix, and delimiters as required but **you may need to use your shell specific way of escaping characters, for example with sh/bash, you need to use e.g. --prefix $'[\n'.**
 
 ## Debugging
 

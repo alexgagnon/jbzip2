@@ -18,7 +18,7 @@ pub fn process(
     format_type: Option<String>,
     prefix: Option<String>,
     suffix: Option<String>,
-    delimiter: String,
+    delimiter: Option<String>,
     continue_on_error: bool,
 ) -> Result<(), std::io::Error> {
     let mut stream = BufWriter::new(output);
@@ -27,29 +27,46 @@ pub fn process(
 
     trace!("Initializing buffer to size {}", buffer_size);
     let mut buffer = vec![0; buffer_size];
+    debug!("Buffer initialized: {:?}", buffer.len());
 
-    let mut p = prefix.unwrap_or("".to_string());
-    let mut s = suffix.unwrap_or("".to_string());
-    let mut d = delimiter;
+    let mut p = "".to_string();
+    let mut s = "".to_string();
+    let mut d = "".to_string();
+    let t = format_type.unwrap_or("jsonl".to_string());
+    let convert_to_array = t.eq("wikidump");
 
-    if let Some(format_type) = format_type {
-        debug!("Setting format type to {}", format_type);
-        match format_type.as_str() {
-            "wikidump" => {
-                p = "[\n".to_string();
-                s = "\n]".to_string();
-                d = ",\n".to_string();
-            }
-            "jsonl" => {
-                p = "".to_string();
-                s = "".to_string();
-                d = "\n".to_string();
-            }
-            _ => {
-                panic!("Invalid format type");
-            }
+    match t.as_str() {
+        "wikidump" => {
+            p = "[\n".to_string();
+            s = "\n]".to_string();
+            d = ",\n".to_string();
+        }
+        "jsonl" => {
+            p = "".to_string();
+            s = "".to_string();
+            d = "\n".to_string();
+        }
+        _ => {
+            panic!("Invalid format type");
         }
     }
+
+    if prefix.is_some() {
+        p = prefix.unwrap();
+    }
+
+    if suffix.is_some() {
+        s = suffix.unwrap();
+    }
+
+    if delimiter.is_some() {
+        d = delimiter.unwrap();
+    }
+
+    debug!("Type: {:?}", t);
+    debug!("Prefix: {:?}", p);
+    debug!("Suffix: {:?}", s);
+    debug!("Delimiter: {:?}", d);
 
     let start = Instant::now();
 
@@ -63,66 +80,80 @@ pub fn process(
     let mut n = md.read(&mut buffer)?;
     let mut total_bytes: u64 = n as u64;
 
-    let mut str_buffer = String::new();
-    str_buffer.reserve(buffer_size); // reserve space for the buffer
+    // buffer to hold the string, with a little extra space in case we need to
+    // convert to an array
+    let mut str_buffer = String::with_capacity(buffer_size * 2);
 
     let mut done = false;
+
+    let mut jq = Command::new("jq");
+    jq.args(["-r", jq_filter]);
 
     // if n == 0, we're at EOF
     while n > 0 && !done {
         // buffer has bytes in it, convert up to the number of bytes read to string
         str_buffer.push_str(from_utf8(&buffer[..n]).expect("Could not convert to utf8 string"));
-
+        // possible scenarios:
         // []
         // [partial] -> error, buffer_size too small
         // [,partial] -> error, buffer_size too small
         // [a...] -> fine -> single entity smaller than buffer
         // [a,] -> fine -> exactly ends with delimiter, trim it
+        // [,a] -> fine -> exactly starts with delimiter, trim it
         // [a,partial] -> fine, keep partial for next iteration
-        // [a, b...] -> fine, concat a and b
-        
+
         // trim delimiter from start and end of the buffer to normalize what's in the buffer
-        str_buffer = str_buffer.trim_start_matches(&d).to_string();
-        str_buffer = str_buffer.trim_end_matches(&d).to_string();
+        // NOTE: use slices to avoid string mutations
+        let mut slice = str_buffer.trim_start_matches(&d);
+        slice = slice.trim_end_matches(&d);
 
         // find the last delimiter in the string, if it exists
-        let pos = str_buffer.rfind(&d);
+        let pos = slice.rfind(&d);
+
+        debug!("Last delimiter at: {:?}", pos);
 
         // pos can be None if it's a single entity, or if the entity is larger than the buffer
         // TODO: this is an edge case... it could EXACTLY fit the buffer
-        // maybe keep a flag and then continue and see if the first char of the next buffer is a delimiter
         if pos.is_none() {
-          if str_buffer.len() >= buffer_size {
+          info!("1 entity in buffer, or entity is larger than buffer");
+          if slice.len() >= buffer_size {
             panic!("Entity is larger than buffer, increase --buffer-size value")
           }
         }
 
-        let mut last = str_buffer.split_off(pos.unwrap_or(0));
+        let mut last = &slice[pos.unwrap_or(0)..];
 
         // if it's the last entity, trim the suffix and then put it back in the str_buffer
         if last.ends_with(&s) {
             done = true;
-            last.truncate(last.len() - s.len());
-            str_buffer.push_str(&last);
+            debug!("Trimming suffix");
+            last = last.trim_end_matches(&s);
+            slice = slice.trim_end_matches(&s);
+        }
+        else {
+            slice = &slice[0..pos.unwrap_or(slice.len())]
         }
 
-        // convert the delimiter to newline for jq --raw if not already (i.e. jsonl format)
-        if !d.eq("\n") {
-          str_buffer = str_buffer.replace(&d, "\n");
-        }
+        info!("Processing: {:?} - {:?}", &slice[0..10], &slice[slice.len()-10..]);
 
-        let mut jq = Command::new("jq");
-        jq.args(["-r", jq_filter]);
-
-        let process = match jq.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+        let mut process = match jq.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
             Err(_) => panic!("Couldn't spawn jq, is it install?"),
             Ok(process) => process,
         };
 
-        match process.stdin.unwrap().write_all(str_buffer.as_bytes()) {
-          Err(why) => panic!("Couldn't write to stdin: {}", why),
-          Ok(_) => {},
+        if let Some(mut stdin) = process.stdin.take() {
+          if convert_to_array {
+            stdin.write_all("[".as_bytes()).expect("Failed to write to stdin");
+          }
+          stdin.write_all(slice.as_bytes()).expect("Failed to write to stdin");
+          if convert_to_array {
+            stdin.write_all("]".as_bytes()).expect("Failed to write to stdin");
+          }
+        } else {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Child process stdin not captured"));
         }
+
+        debug!("Waiting for jq to finish...");
 
         let reader: BufReader<std::process::ChildStdout> = BufReader::new(process.stdout.unwrap());
 
@@ -133,6 +164,7 @@ pub fn process(
               stream.write_all(b"\n").expect("Could not write to stream");
             },
             Err(_) => {
+              // TODO: write to stderr and/or error log
               if continue_on_error {
                 return;
               }
@@ -145,7 +177,6 @@ pub fn process(
 
         buffer = vec![0; buffer_size];
         n = md.read(&mut buffer)?;
-        debug!("Read {} bytes", n);
 
         total_bytes += n as u64;
 
@@ -157,7 +188,7 @@ pub fn process(
 
     let duration = start.elapsed();
     replace_line("");
-    info!(
+    print!(
         "Processed {} bytes in {} seconds",
         format_bytes(size),
         format!("{:.2}", duration.as_secs_f64())
