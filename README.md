@@ -31,3 +31,7 @@ You can provide your own prefix, suffix, and delimiters as required but **you ma
 ## Debugging
 
 For additional debugging information, run the command with env_logger variable (i.e. `RUST_LOG={info,debug,trace}`)
+
+## TODO
+
+- [ ] come up with reasonable way to not exceed the buffer size
