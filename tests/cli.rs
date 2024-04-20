@@ -16,11 +16,11 @@ mod tests {
             &mut output,
             &".id".to_string(),
             500000,
-            Some("[\n".to_string()),
-            Some("\n]".to_string()),
-            ",\n".to_string(),
-            true,
-            false,
+            Some("wikidump".to_string()),
+            None,
+            None,
+            None,
+            true
         )?;
         println!("{:?}", String::from_utf8_lossy(&output));
         let expected = b"\"Q1\"\n\"Q2\"\n\"Q3\"\n\"Q4\"\n\"Q5\"\n\"Q6\"\n\"P1\"\n\"Q60\"\n";
@@ -42,11 +42,11 @@ mod tests {
             &mut output,
             &"[.id, .id] | @tsv".to_string(),
             500000,
-            Some("[\n".to_string()),
-            Some("\n]".to_string()),
-            ",\n".to_string(),
-            true,
-            true,
+            Some("wikidump".to_string()),
+            None,
+            None,
+            None,
+            true
         )?;
         let expected = b"Q31  Q31";
         println!(r#"{:?}"#, String::from_utf8_lossy(&output));
@@ -73,12 +73,12 @@ mod tests {
             size,
             &mut output,
             &".id".to_string(),
-            10000000,
-            Some("[\n".to_string()),
-            Some("\n]".to_string()),
-            ",\n".to_string(),
-            true,
-            false
+            500000,
+            Some("wikidump".to_string()),
+            None,
+            None,
+            None,
+            true
         )?;
         assert!(compare(
             &mut BufReader::new(output.as_slice()),
@@ -105,9 +105,9 @@ mod tests {
             10000000,
             None,
             None,
-            "\n".to_string(),
-            true,
-            false,
+            None,
+            None,
+            true
         )?;
         assert!(compare(
             &mut BufReader::new(output.as_slice()),
