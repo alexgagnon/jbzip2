@@ -1,37 +1,164 @@
 name: release
 
-on: 
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+on: workflow_dispatch
+
+permissions:
+  contents: write
 
 env:
+  APP_NAME: jbzip2
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    name: release
+  create-release:
+    name: create release
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          VERSION=$(grep '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - run: echo "$VERSION"
+      - name: create gh release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$VERSION" --draft --title "$VERSION"
+    outputs:
+      version: ${{ env.VERSION }}
+      
+  build-and-release:
+    name: build and release
+    needs: ['create-release']
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO: cargo
+      CROSS_VERSION: v0.2.5
+      TARGET_DIR: ./target
     strategy:
       fail-fast: false
       matrix:
         include:
-          # - target: x86_64-pc-windows-gnu
-          #   archive: zip
-          - target: x86_64-unknown-linux-musl
-            archive: tar.gz
-          # - target: x86_64-apple-darwin
-          #   archive: zip
+          - build: win-msvc
+            os: windows-latest
+            rust: nightly
+            target: x86_64-pc-windows-msvc
+          # - build: win-gnu
+          #   os: windows-latest
+          #   rust: nightly-x86_64-gnu
+          #   target: x86_64-pc-windows-gnu
+          - build: linux
+            os: ubuntu-latest
+            rust: nightly
+            target: x86_64-unknown-linux-musl
+            strip: x86_64-linux-musl-strip
+          - build: macos
+            os: macos-latest
+            rust: nightly
+            target: x86_64-apple-darwin
     steps:
-      - name: Checkout
-        uses: actions/checkout@master
+      - uses: actions/checkout@master
 
-      - name: Install Rust
+      - name: install libs
+        shell: bash
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y musl-tools
+
+      - name: install rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           target: ${{ matrix.target }}
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: setup Cross
+        shell: bash
+        if: matrix.os == 'ubuntu-latest' && matrix.target != ''
+        run: |
+          # In the past, new releases of 'cross' have broken CI. So for now, we
+          # pin it. We also use their pre-compiled binary releases because cross
+          # has over 100 dependencies and takes a bit to compile.
+          dir="$RUNNER_TEMP/cross-download"
+          mkdir "$dir"
+          echo "$dir" >> $GITHUB_PATH
+          cd "$dir"
+          curl -LO "https://github.com/cross-rs/cross/releases/download/$CROSS_VERSION/cross-x86_64-unknown-linux-musl.tar.gz"
+          tar xf cross-x86_64-unknown-linux-musl.tar.gz
+          echo "CARGO=cross" >> $GITHUB_ENV
+
+      - name: set target variables
+        shell: bash
+        run: |
+          echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
+          echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
+  
+      - name: show command used for Cargo
+        shell: bash
+        run: |
+          echo "cargo command is: ${{ env.CARGO }}"
+          echo "target flag is: ${{ env.TARGET_FLAGS }}"
+          echo "target dir is: ${{ env.TARGET_DIR }}"
+          
+      - name: build
+        shell: bash
+        run: |
+          ${{ env.CARGO }} build --release --target ${{ env.TARGET_FLAGS }}
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            bin="target/${{ matrix.target }}/release/${{ env.APP_NAME }}.exe"
+          else
+            bin="target/${{ matrix.target }}/release/${{ env.APP_NAME }}"
+          fi
+          echo "BIN=$bin" >> $GITHUB_ENV
+
+      - name: strip release binary (macos)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: strip "$BIN"
+  
+      - name: strip release binary (cross)
+        if: env.CARGO == 'cross'
+        shell: bash
+        run: |
+          docker run --rm -v \
+            "$PWD/target:/target:Z" \
+            "ghcr.io/cross-rs/${{ matrix.target }}:main" \
+            "${{ matrix.strip }}" \
+            "/$BIN"
+            
+      - name: determine archive name
+        shell: bash
+        run: |
+          version="${{ needs.create-release.outputs.version }}"
+          echo "ARCHIVE=${{ env.APP_NAME }}-$version-${{ matrix.target }}" >> $GITHUB_ENV
+    
+      - name: creating directory for archive
+        shell: bash
+        run: |
+          mkdir -p "$ARCHIVE"/{complete,doc}
+          cp "$BIN" "$ARCHIVE"/
+          # cp {README.md,COPYING,UNLICENSE,LICENSE-MIT} "$ARCHIVE"/
+          # cp {CHANGELOG.md,FAQ.md,GUIDE.md} "$ARCHIVE"/doc/
+
+      - name: build archive (Windows)
+        shell: bash
+        if: matrix.os == 'windows-latest'
+        run: |
+          7z a "$ARCHIVE.zip" "$ARCHIVE"
+          certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"
+          echo "ASSET=$ARCHIVE.zip" >> $GITHUB_ENV
+          echo "ASSET_SUM=$ARCHIVE.zip.sha256" >> $GITHUB_ENV
+    
+      - name: build archive (Unix)
+        shell: bash
+        if: matrix.os != 'windows-latest'
+        run: |
+          tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
+          echo "ASSET=$ARCHIVE.tar.gz" >> $GITHUB_ENV
+          echo "ASSET_SUM=$ARCHIVE.tar.gz.sha256" >> $GITHUB_ENV
+
+      - name: upload release archive
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          version="${{ needs.create-release.outputs.version }}"
+          gh release upload "$version" ${{ env.ASSET }} ${{ env.ASSET_SUM }}

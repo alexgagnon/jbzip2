@@ -1,14 +1,12 @@
 use bzip2::read::MultiBzDecoder;
-use indicatif::{HumanDuration, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use jq_rs::JqProgram;
-use log::{debug, info, trace};
-use serde_json::Value;
+use log::{debug, info};
 use simdutf8::basic::from_utf8;
-use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
+use std::process::{Command, Stdio};
+use std::thread;
 use std::time::Instant;
 
 pub fn process(
@@ -17,208 +15,246 @@ pub fn process(
     output: &mut impl Write,
     jq_filter: &String,
     buffer_size: usize,
+    format_type: Option<String>,
     prefix: Option<String>,
     suffix: Option<String>,
-    delimiter: String,
+    delimiter: Option<String>,
     continue_on_error: bool,
-    raw: bool
 ) -> Result<(), std::io::Error> {
-    let no_progress_bar = env::var("NO_PROGRESS_BAR").is_ok();
     let mut stream = BufWriter::new(output);
-    let mut filter = jq_rs::compile(jq_filter).expect("Could not compile jq filter");
 
     let mut md = MultiBzDecoder::new(reader);
 
-    trace!("Initializing buffer to size {}", buffer_size);
     let mut buffer = vec![0; buffer_size];
+    debug!("Buffer initialized: {:?}", buffer.len());
 
-    let bar = ProgressBar::new(size);
-    bar.set_draw_rate(1);
-    bar.set_style(
-        ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] {msg}"),
-    );
+    let mut p = "".to_string();
+    let mut s = "".to_string();
+    let mut d = "".to_string();
+    let t = format_type.unwrap_or("jsonl".to_string());
+    let convert_to_array = t.eq("wikidump");
 
-    // hide progress bar if runnings tests or explicitely set with env
-    if cfg!(test) || no_progress_bar {
-        bar.set_draw_target(ProgressDrawTarget::hidden());
+    match t.as_str() {
+        "wikidump" => {
+            p = "[\n".to_string();
+            s = "\n]".to_string();
+            d = ",\n".to_string();
+        }
+        "jsonl" => {
+            p = "".to_string();
+            s = "".to_string();
+            d = "\n".to_string();
+        }
+        _ => {
+            panic!("Invalid format type");
+        }
     }
+
+    // override the defaults if they're provided
+    if prefix.is_some() {
+        p = prefix.unwrap();
+    }
+
+    if suffix.is_some() {
+        s = suffix.unwrap();
+    }
+
+    if delimiter.is_some() {
+        d = delimiter.unwrap();
+    }
+
+    debug!("Type: {:?}", t);
+    debug!("Prefix: {:?}", p);
+    debug!("Suffix: {:?}", s);
+    debug!("Delimiter: {:?}", d);
+
+    let s_slice = s.as_str();
 
     let start = Instant::now();
 
-    // discard the prefix characters
-    if prefix.is_some() {
-        debug!("Stripping prefix");
-        md.read(&mut vec![0u8; prefix.unwrap().len()])
-            .expect("Could not strip prefix");
-    }
+    // discard the prefix characters into a null buffer
+    debug!("Stripping prefix");
+    md.read(&mut vec![0u8; p.len()])
+        .expect("Could not strip prefix");
 
     debug!("Filtering entities...");
+
+    let mut n = md.read(&mut buffer)?;
+    let mut current_bytes = n as u64;
+    let mut total_bytes: u64 = n as u64;
     let mut num_entities = 0;
-    let mut num_entities_filtered = 0;
-    let mut num_errors = 0;
+    let mut i = 0;
 
-    // BYTE ITERATOR METHOD, 2x slower than jstream
-    if env::var("LIST_ITERATOR").is_ok() {
-        debug!("List iterator");
-        let mut i = 0;
-        let delimiter = delimiter.as_bytes();
-        let mut bytes = md.bytes();
-        let mut d = 0;
+    // buffer to hold the string, with a little extra space in case we need to
+    // convert to an array
+    let mut str_buffer = String::with_capacity(buffer_size + 2);
 
-        loop {
-            match bytes.next() {
-                Some(Ok(byte)) => {
-                    buffer[i] = byte;
-                    if delimiter[d] == byte {
-                        if delimiter.len() - 1 == d {
-                            // we have a whole entity
-                            // strip away the delimiter parts and convert to utf8 string
-                            let entity = from_utf8(&buffer[..i - d])
-                                .expect("Could not convert to utf8 string");
-                            let filtered_entity =
-                                filter_entity(entity, &mut filter, continue_on_error);
-                            num_entities += 1;
-                            output_entity(
-                                &mut stream,
-                                filtered_entity,
-                                &mut num_entities,
-                                &mut num_entities_filtered,
-                                &mut num_errors,
-                                raw,
-                            );
+    let mut done = false;
 
-                            if !no_progress_bar {
-                                bar.set_message(format!(
-                                    "Output {} of {} entities processed",
-                                    num_entities_filtered, num_entities
-                                ));
-                            }
+    // if n == 0, we're at EOF
+    // NOTE: `read` will pull in only up to a single block at at time (which for parallel compressed
+    // data like wikidumps is around 900k), so we need to keep reading until we've filled the buffer
+    // this is important because some entities may be larger than the block size
+    while !done {
 
-                            // reset buffer and indexes
-                            buffer = vec![0; buffer_size];
-                            i = 0;
-                            d = 0;
-                            continue;
-                        }
-                        d += 1;
-                    } else {
-                        d = 0;
-                    }
-                    i += 1;
-                }
+        str_buffer.push_str(from_utf8(&buffer[..n]).expect("Could not convert to utf8 string"));
 
-                Some(Err(_)) => {
-                    panic!("Invalid byte");
-                }
-
-                None => {
-                    debug!("EOF reached");
-                    let end = if suffix.is_some() {
-                        suffix.unwrap().len()
-                    } else {
-                        0
-                    };
-                    let entity =
-                        from_utf8(&buffer[..i - end]).expect("Could not convert to utf8 string");
-                    let filtered_entity = filter_entity(entity, &mut filter, continue_on_error);
-                    output_entity(
-                        &mut stream,
-                        filtered_entity,
-                        &mut num_entities,
-                        &mut num_entities_filtered,
-                        &mut num_errors,
-                        raw,
-                    );
-                    break;
-                }
-            }
+        let mut is_last = str_buffer.ends_with(s_slice);
+        while (!is_last || n > 0) && current_bytes < buffer_size as u64 - 1000000 {
+            debug!("{} < {}, reading more bytes", current_bytes, buffer_size);
+            n = md.read(&mut buffer).expect("Could not read from buffer");
+            current_bytes += n as u64;
+            let string = from_utf8(&buffer[..n]).expect("Could not convert to utf8 string");
+            is_last = str_buffer.ends_with(s_slice);
+            str_buffer.push_str(string);
         }
-    }
-    // BUFFER METHOD,
-    else {
-        debug!("Buffer");
 
-        // TODO: find a way to detect last element without a suffix (maybe try JqFilter and see if it passes?)
-        let suffix = suffix.unwrap_or("".to_string());
-        let mut n = md.read(&mut buffer)?;
-        debug!("Read {} bytes", n);
+        // buffer has bytes in it, convert up to the number of bytes read to string
+        debug!("{:?} - {:?}", &str_buffer[0..10], &str_buffer[str_buffer.len()-10..]);
 
-        let mut str_buffer = String::new();
+        // possible scenarios:
+        // []
+        // [partial] -> error, buffer_size too small
+        // [,partial] -> error, buffer_size too small
+        // [a...] -> fine -> single entity smaller than buffer
+        // [a,] -> fine -> exactly ends with delimiter, trim it
+        // [,a] -> fine -> exactly starts with delimiter, trim it
+        // [a,partial] -> fine, keep partial for next iteration
 
-        while n > 0 {
-            // buffer has bytes in it, convert up to the number of bytes read to string
-            str_buffer.push_str(from_utf8(&buffer[..n]).expect("Could not convert to utf8 string"));
-            let entities: Vec<&str> = str_buffer.split(&delimiter).collect();
-            let (last, entities) = entities.split_last().unwrap();
-            for entity in entities {
-                let filtered_entity = filter_entity(entity, &mut filter, continue_on_error);
-                output_entity(
-                    &mut stream,
-                    filtered_entity,
-                    &mut num_entities,
-                    &mut num_entities_filtered,
-                    &mut num_errors,
-                    raw,
-                );
-            }
+        // trim delimiter from start and end of the buffer to normalize what's in the buffer
+        // NOTE: use slices to avoid string mutations
+        let mut slice = str_buffer.trim_start_matches(&d);
+        slice = slice.trim_end_matches(&d);
 
-            // the last item could be:
-            // 1. incomplete, so just iterate
-            // 2. shorter than the filled buffer, meaning we're EOF
-            // 3. splitting the suffix (should iterate fine)
-            // 4. exactly before the suffix (should iterate fine)
-            let last = last.trim();
-            if last.ends_with(&suffix) {
-                debug!("Last entity");
-                let filtered_entity = filter_entity(
-                    &last[..last.len() - suffix.len()],
-                    &mut filter,
-                    continue_on_error,
-                );
-                output_entity(
-                    &mut stream,
-                    filtered_entity,
-                    &mut num_entities,
-                    &mut num_entities_filtered,
-                    &mut num_errors,
-                    raw,
-                );
-                break;
-            }
+        // find the last delimiter in the string, if it exists
+        let pos = slice.rfind(&d);
 
-            if !no_progress_bar {
-                bar.set_message(format!(
-                    "Processed {} entities, {} filtered out and {} errors",
-                    num_entities, num_entities_filtered, num_errors
-                ));
-            }
+        debug!("Last delimiter at: {:?}", pos);
 
-            str_buffer = last.to_string();
-
-            buffer = vec![0; buffer_size];
-            n = md.read(&mut buffer)?;
-            debug!("Read {} bytes", n);
+        // pos can be None if it's a single entity, or if the entity is larger than the buffer
+        // TODO: this is an edge case... it could EXACTLY fit the buffer
+        if pos.is_none() {
+          debug!("Slice length: {}", slice.len());
+          if slice.len() <= buffer_size {
+            info!("1 entity");
+          }
+          else {
+            panic!("Entity is larger than buffer, increase --buffer-size value")
+          }
         }
+
+        let last = &slice[pos.unwrap_or(0) + d.len()..];
+
+        // if it's the last entity, trim the suffix
+        if last.ends_with(&s) {
+            done = true;
+            debug!("Trimming suffix");
+            slice = slice.trim_end_matches(&s);
+        }
+        else {
+            debug!("Saving last entity for next iteration");
+            slice = &slice[..pos.unwrap_or(slice.len())]
+        }
+
+        debug!("Processing: {:?} - {:?}", &slice[0..100], &slice[slice.len()-5..]);
+        debug!("Last: {:?} - {:?}", &last[0..100], &last[last.len()-5..]);
+
+        let mut jq = Command::new("jq");
+        jq.args(["-r", jq_filter]);
+
+        let mut process = match jq.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+            Err(_) => panic!("Couldn't start jq, is it installed?"),
+            Ok(process) => process,
+        };
+
+        let stdin = process.stdin.take().expect("Failed to take stdin");
+        let stdout = process.stdout.take().expect("Failed to take stdout");
+        let reader = BufReader::new(stdout);
+
+        thread::scope(|s| {
+          s.spawn(|| {
+            let mut stdin= stdin;
+            if convert_to_array {
+              stdin.write_all("[".as_bytes()).expect("Failed to write to stdin");
+            }
+            stdin.flush().expect("Failed to flush stdin");
+            stdin.write_all(slice.as_bytes()).expect("Failed to write to stdin");
+            stdin.flush().expect("Failed to flush stdin");
+            if convert_to_array {
+              stdin.write_all("]".as_bytes()).expect("Failed to write to stdin");
+            }
+          });
+
+          reader.lines().for_each(|line| {
+            match line {
+              Ok(line) => {
+                stream.write_all(line.as_bytes()).expect("Could not write to stream");
+                stream.write_all(b"\n").expect("Could not write to stream");
+                num_entities += 1;
+              },
+              Err(_) => {
+                // TODO: write to stderr and/or error log
+                if continue_on_error {
+                  return;
+                }
+                panic!("Error processing jq filter");
+              }
+            }
+          });
+        });
+
+        str_buffer = last.to_string();
+        str_buffer.reserve(buffer_size - str_buffer.len());
+
+        n = md.read(&mut buffer)?;
+
+        total_bytes += current_bytes as u64;
+        current_bytes = 0;
+        
+        if i == 0 {
+          replace_line(&format!("Processed {} entities from {} bytes in {} seconds", num_entities, format_bytes(total_bytes), format!("{:.2}", start.elapsed().as_secs_f64())));
+          print!("Processed {} entities from {} bytes in {} seconds", num_entities, format_bytes(total_bytes), format!("{:.2}", start.elapsed().as_secs_f64()));
+        }
+        i += 1;
     }
 
     stream.flush().expect("Could not flush");
 
-    bar.finish_with_message(format!(
-        "Finished in {}. Processed {} entities, {} filtered out and {} errors",
-        HumanDuration(start.elapsed()),
+    let duration = start.elapsed();
+    replace_line("");
+    println!(
+        "Processed {} entities from {} bytes in {} seconds",
         num_entities,
-        num_entities_filtered,
-        num_errors
-    ));
-
-    info!(
-        "Finished in {}. Processed {} entities, {} filtered out and {} errors",
-        HumanDuration(start.elapsed()),
-        num_entities,
-        num_entities_filtered,
-        num_errors
+        format_bytes(size),
+        format!("{:.2}", duration.as_secs_f64())
     );
+
     Ok(())
+}
+
+fn replace_line(str: &str) {
+    print!("\x1B[2K\r");
+    std::io::stdout().flush().unwrap();
+    print!("{}", str);
+}
+
+fn format_bytes(bytes: u64) -> String {
+    let kb = 1024;
+    let mb = kb * 1024;
+    let gb = mb * 1024;
+    let tb = gb * 1024;
+
+    if bytes < kb {
+        format!("{} B", bytes)
+    } else if bytes < mb {
+        format!("{:.2} KB", bytes as f64 / kb as f64)
+    } else if bytes < gb {
+        format!("{:.2} MB", bytes as f64 / mb as f64)
+    } else if bytes < tb {
+        format!("{:.2} GB", bytes as f64 / gb as f64)
+    } else {
+        format!("{:.2} TB", bytes as f64 / tb as f64)
+    }
 }
 
 pub fn get_file_as_bufreader(path: &PathBuf) -> Result<(BufReader<File>, u64), std::io::Error> {
@@ -226,61 +262,4 @@ pub fn get_file_as_bufreader(path: &PathBuf) -> Result<(BufReader<File>, u64), s
     let size = file.metadata()?.len();
     debug!("Opening {:?}, size: {}", path, size);
     Ok((BufReader::new(file), size))
-}
-
-// TODO: replace the Option return with Result so we can output the error for easier debugging
-fn filter_entity(entity: &str, filter: &mut JqProgram, continue_on_error: bool) -> Option<String> {
-    trace!(">> filter_entity");
-    trace!("{}", entity);
-    let result = filter.run(&entity);
-    let filtered_entity = match result {
-        Ok(e) => e,
-        Err(error) => {
-            if !continue_on_error {
-                println!("Could not parse: {}", error);
-                panic!("Could not parse: {}", error);
-            } else {
-                info!("Could not parse: {}", error);
-                return None;
-            }
-        }
-    };
-    trace!("{}", filtered_entity);
-    trace!("<< filter_entity");
-    Some(filtered_entity)
-}
-
-fn output_entity(
-    stream: &mut BufWriter<&mut impl Write>,
-    filtered_entity: Option<String>,
-    num_entities: &mut i32,
-    num_entities_filtered: &mut i32,
-    num_errors: &mut i32,
-    raw: bool,
-) {
-    *num_entities += 1;
-    if filtered_entity.is_some() {
-        let filtered_entity = filtered_entity.unwrap();
-        if !filtered_entity.is_empty() {
-            if !raw {
-              // TODO: handle various types recursively...
-              let parsed: Value = serde_json::from_str(&filtered_entity).unwrap();
-              stream.write(parsed.as_str().unwrap().as_bytes()).expect("Could not write");
-            }
-            else {
-              stream
-              .write(filtered_entity.as_bytes())
-              .expect("Could not write");
-            }
-
-        }
-        else {
-          *num_entities_filtered += 1;
-        }
-    }
-    // jq-error
-    else {
-        *num_errors += 1;
-        // TODO: output to log file?
-    }
 }
