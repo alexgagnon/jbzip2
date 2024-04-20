@@ -34,4 +34,4 @@ For additional debugging information, run the command with env_logger variable (
 
 ## TODO
 
-- [ ] come up with reasonable way to not exceed the buffer size
+- [ ] look at parallelizing the child processes
